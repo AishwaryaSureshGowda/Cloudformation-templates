@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Template for SSM Parameter
+
+Parameters:
+  Key:
+    Type: String
+    Description: Name of the path for SSM
+  Environment:
+    Type: String
+    AllowedValues:
+      - development
+      - staging
+      - production
+  Value:
+    Type: String
+  AppType:
+    Type: String
+    AllowedValues:
+      - common
+      - webapp
+  AppName: 
+    Type: String
+    Default: ""
+    AllowedPattern: ".*"
+    ConstraintDescription: Must not be empty
+
+Conditions:
+  AppNameRequired: !Equals [!Ref AppType, "webapp"]
+
+Resources:
+  SSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Path of the params
+      Name: !If [AppNameRequired, !Sub "/${Environment}/${AppType}/${AppName}/${Key}", !Sub "/${Environment}/${AppType}/${Key}"]
+      Type: String
+      Value: !Ref Value
