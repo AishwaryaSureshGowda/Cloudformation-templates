@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Template to create MQ Broker
+Parameters:
+  SelectBrokerEngine:
+    Type: String
+    AllowedValues:
+    - Apache ActiveMQ
+    - RabbitMQ
+  SelectDeploymentMode:
+    Type: String
+    AllowedValues:
+    - SINGLE_INSTANCE
+    - ACTIVE_STANDBY_MULTI_AZ
+  BrokerName:
+    Type: String
+    Description: Name of the broker
+  InstanceType:
+    Type: String
+    Default: mq.m5.large
+    AllowedValues: 
+    - mq.t3.micro
+    - mq.m5.xlarge
+    - mq.m5.2xlarge
+    - mq.m5.4xlarge
+    - mq.m5.large
+  RabbitMQUsername:
+    Type: String
+    Description: Username for RabbitMQ access
+  RabbitMQPassword:
+    Type: String
+    Description: Password for RabbitMQ access
+  BrokerEngineVersion:
+    Type: String
+    Default: 3.11.28
+    
+  NetworkAndSecurity:
+    Type: String
+    AllowedValues:
+    - Public access
+    - Private access
+  VPCAndSubnets:
+    Type: String
+    Default: Use the default VPC and subnet(s)
+    AllowedValues:
+    - Use the default VPC and subnet(s)
+    - Select existing VPC and subnet(s)
+  ExistingVPC:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the existing VPC
+    
+  ExistingSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Select the existing subnets
+    
+  Encryption:
+    Type: String
+    AllowedValues:
+    - AWS owned CMK
+    - AWS managed CMK
+    - Customer managed CMKs are created and managed by you in AWS Key Management Service (KMS).
+  Maintenance:
+    Type: String
+    AllowedValues:
+    - True
+    - False
+  MaintenanceWindowChoice:
+    Type: String
+    Default: No preference
+    AllowedValues:
+    - No preference
+    - Select maintenance window
+    
+   
+Resources:
+  MyBroker:
+    Type: AWS::AmazonMQ::Broker
+    Properties:
+      BrokerName: !Ref BrokerName
+      EngineType: !Ref SelectBrokerEngine
+      DeploymentMode: !Ref SelectDeploymentMode
+      HostInstanceType: !Ref InstanceType
+      EngineVersion: !Ref BrokerEngineVersion
+      PubliclyAccessible: !If [IsPublicAccess, true, false]
+      AutoMinorVersionUpgrade: true # Specify if minor version upgrades should be automatically applied
+      Users:
+        - Username: !Ref RabbitMQUsername
+          Password: !Ref RabbitMQPassword
+      SubnetIds: !If [UseExistingSubnets, !Ref ExistingSubnets, !Ref "AWS::NoValue"]
+      SecurityGroups: !If [IsPublicAccess, !Ref "AWS::NoValue", !If [UseExistingSubnets, !Ref ExistingVPC, !Ref "AWS::NoValue"]]
+Conditions:
+  IsPublicAccess:
+    Fn::Equals:
+      - !Ref NetworkAndSecurity
+      - Public access
+  UseExistingSubnets:
+    Fn::Equals:
+      - !Ref VPCAndSubnets
+      - Select existing VPC and subnet(s)
