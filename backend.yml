@@ -1,0 +1,493 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for CI/CD pipeline for backend(nodejs) applications
+Parameters:
+  BuildSpecFileName:
+    Type: String
+    Description: Name of the buildspec file for codebuild
+    Default: buildspec.yml
+    AllowedValues:
+      - buildspec.yml
+      - buildspec.stage.yml
+      - buildspec.prod.yml
+      - buildspec.prod.us.yml
+      - buildspec.prod.eu.yml
+  ServiceName:
+    Type: String
+    Description: 'Name of the container mentioned in buildspec file (less than 25 characters), eg: aws-nodejs-test'
+  ContainerPortNumber:
+    Type: Number
+    Description: 'Port of server running, eg: 4034'
+  HealthCheckPath:
+    Type: String
+    Description: 'Base path of the server, eg: /api/v1/aws-nodejs-test'
+    Default: /api/v1/
+  Cpu:
+    Type: Number
+    Description: Min vCPU needed to run this service
+    Default: 256
+    AllowedValues:
+      - 256
+      - 512
+      - 1024
+      - 2048
+      - 4096
+  Memory:
+    Type: Number
+    Description: Min Memory needed to run this service
+    Default: 512
+    AllowedValues:
+      - 512
+      - 1024
+      - 2048
+      - 4096
+      - 8192
+  BranchName:
+    Type: String
+    Description: 'Name of the github branch to deploy, eg: kushankur/dev'
+    Default: master
+  RepositoryName:
+    Type: String
+    Description: 'Name of the Github Repository, eg: aws-complianceService'
+  Priority:
+    Type: Number
+    Description: Priority of the rule inside LB listener
+Mappings:
+  RegionMap:
+    us-east-1:
+      ECSClusterName: aws-dev
+      CodePipelineArtifactStoreS3Bucket: codepipeline-us-east-1-491529108795
+      Certificate: arn:aws:acm:us-east-1:123456789:certificate/0e282312-d6aa-4c2f-aa25-044aa91679f7
+      SecurityGroup: sg-0b4b57b51af069d5f
+      VpcId: vpc-0a9e0948708172ba2
+      SubnetIds:
+        - subnet-0064ba73f61fa441d
+        - subnet-0d33098fd633d701d
+      ListenerArn: arn:aws:elasticloadbalancing:us-east-1:123456789:listener/app/aws-dev/824443a056945883/efc7c75295c3fbff
+    us-east-2:
+      ECSClusterName: aws-production-us
+      CodePipelineArtifactStoreS3Bucket: codepipeline-us-east-2-85033397405
+      Certificate: arn:aws:acm:us-east-2:123456789:certificate/3feed3b1-ff53-4c4d-bed9-f8e42e03ffee
+      SecurityGroup: sg-0fdcada986c6182da
+      VpcId: vpc-026d8a302bca51936
+      SubnetIds:
+        - subnet-0c6caf65e4fc10e25
+        - subnet-0c60a44a54c480368
+      ListenerArn: arn:aws:elasticloadbalancing:us-east-2:123456789:listener/app/aws-production-us/6f0a657f7986adc9/f14dcd184d141d1f
+    us-west-2:
+      ECSClusterName: aws-staging
+      CodePipelineArtifactStoreS3Bucket: codepipeline-us-west-2-222590729718
+      Certificate: arn:aws:acm:us-west-2:123456789:certificate/a400ea0c-be2d-4c16-8685-8aca0a0e3aeb
+      SecurityGroup: sg-0302bc8946a81d87f
+      VpcId: vpc-0172d83a68e7d4e05
+      SubnetIds:
+        - subnet-04e296858d2df43dd
+        - subnet-08040e595a8fe4e52
+      ListenerArn: arn:aws:elasticloadbalancing:us-west-2:123456789:listener/app/aws-staging-alb/f3309c82eb3b24d4/43f16efb0b1371e4
+    ap-south-1:
+      ECSClusterName: aws-prod
+      CodePipelineArtifactStoreS3Bucket: codepipeline-ap-south-1-799037541330
+      Certificate: arn:aws:acm:ap-south-1:123456789:certificate/2ed25c88-0e93-434d-8327-116b3be96626
+      SecurityGroup: sg-0416672f067590964
+      VpcId: vpc-0dd2c7b4d185e7c2a
+      SubnetIds:
+        - subnet-01c9061ac239cd5d9
+        - subnet-07344d883b6396f84
+      ListenerArn: arn:aws:elasticloadbalancing:ap-south-1:123456789:listener/app/aws-prod/4a05eb9424679820/747153e3f5546891
+    eu-north-1:
+      ECSClusterName: aws-eu
+      CodePipelineArtifactStoreS3Bucket: codepipeline-eu-north-1-426411859735
+      Certificate: arn:aws:acm:eu-north-1:123456789:certificate/a5462169-a46b-4564-b629-90ebabbfe8af
+      SecurityGroup: sg-0aa7053a63a51f42a
+      VpcId: vpc-008c8f520c88ffc85
+      SubnetIds:
+        - subnet-0b598f2b4188be902
+        - subnet-0ad496b6a073d556f
+      ListenerArn: arn:aws:elasticloadbalancing:eu-north-1:123456789:listener/app/loadbalancer-eu/8bec542a6534c45a/73bfac0c1e2ac89c
+Resources:
+  MyECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ServiceName
+  MyTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - MyLogGroup
+      - MyECRRepository
+    Properties:
+      Family: !Join
+        - ''
+        - - !Ref ServiceName
+          - TaskDefinition
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: arn:aws:iam::123456789:role/fluentd-s3
+      TaskRoleArn: arn:aws:iam::123456789:role/fluentd-s3
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: !Join
+            - ''
+            - - !GetAtt MyECRRepository.RepositoryUri
+              - ':latest'
+          PortMappings:
+            - ContainerPort: !Ref ContainerPortNumber
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref MyLogGroup
+              awslogs-stream-prefix: ecs
+  MyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join
+        - ''
+        - - /ecs/
+          - !Ref ServiceName
+          - TaskDefinition
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      Name: !Ref ServiceName
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !FindInMap
+        - RegionMap
+        - !Ref AWS::Region
+        - VpcId
+  MyListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    DependsOn:
+      - MyTargetGroup
+    Properties:
+      ListenerArn: !FindInMap
+        - RegionMap
+        - !Ref AWS::Region
+        - ListenerArn
+      Priority: !Ref Priority
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - !Join
+              - ''
+              - - !Ref HealthCheckPath
+                - /*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref MyTargetGroup
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref MyTargetGroup
+                Weight: 1
+  MyECSService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - MyListenerRule
+    Properties:
+      ServiceName: !Ref ServiceName
+      Cluster: !FindInMap
+        - RegionMap
+        - !Ref AWS::Region
+        - ECSClusterName
+      DesiredCount: 0
+      LaunchType: FARGATE
+      TaskDefinition: !Ref MyTaskDefinition
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: !Ref ContainerPortNumber
+          TargetGroupArn: !Ref MyTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !FindInMap
+              - RegionMap
+              - !Ref AWS::Region
+              - SecurityGroup
+          Subnets: !FindInMap
+            - RegionMap
+            - !Ref AWS::Region
+            - SubnetIds
+  MyCodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::123456789:policy/ssm_GetParameter
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
+      Policies:
+        - PolicyName: !Sub ${ServiceName}-codebuild-base-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${ServiceName}-CloudWatchLogs-BuildLogGroup-Name
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${ServiceName}-CloudWatchLogs-BuildLogGroup-Name:*
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+              - Effect: Allow
+                Resource:
+                  - !Sub arn:aws:s3:::codepipeline-${AWS::Region}-*
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+              - Effect: Allow
+                Resource:
+                  - !Sub arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/${ServiceName}-*
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+  MyCodeBuild:
+    Type: AWS::CodeBuild::Project
+    DependsOn:
+      - MyCodeBuildServiceRole
+    Properties:
+      Name: !Ref ServiceName
+      Source:
+        Type: GITHUB
+        Location: !Join
+          - ''
+          - - https://github.com/gomigo-labs/
+            - !Ref RepositoryName
+            - .git
+        GitCloneDepth: 1
+        BuildSpec: !Ref BuildSpecFileName
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+      ServiceRole: !Ref MyCodeBuildServiceRole
+      Artifacts:
+        Type: NO_ARTIFACTS
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Sub ${ServiceName}-CloudWatchLogs-BuildLogGroup-Name
+  MyCodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${ServiceName}-codepipeline-base-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - iam:PassRole
+                Resource: '*'
+                Effect: Allow
+                Condition:
+                  StringEqualsIfExists:
+                    iam:PassedToService:
+                      - cloudformation.amazonaws.com
+                      - elasticbeanstalk.amazonaws.com
+                      - ec2.amazonaws.com
+                      - ecs-tasks.amazonaws.com
+              - Action:
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetRepository
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - codestar-connections:UseConnection
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - elasticbeanstalk:*
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - autoscaling:*
+                  - cloudwatch:*
+                  - s3:*
+                  - sns:*
+                  - cloudformation:*
+                  - rds:*
+                  - sqs:*
+                  - ecs:*
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - lambda:InvokeFunction
+                  - lambda:ListFunctions
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - opsworks:CreateDeployment
+                  - opsworks:DescribeApps
+                  - opsworks:DescribeCommands
+                  - opsworks:DescribeDeployments
+                  - opsworks:DescribeInstances
+                  - opsworks:DescribeStacks
+                  - opsworks:UpdateApp
+                  - opsworks:UpdateStack
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuildBatches
+                  - codebuild:StartBuildBatch
+                Resource: '*'
+                Effect: Allow
+              - Effect: Allow
+                Action:
+                  - devicefarm:ListProjects
+                  - devicefarm:ListDevicePools
+                  - devicefarm:GetRun
+                  - devicefarm:GetUpload
+                  - devicefarm:CreateUpload
+                  - devicefarm:ScheduleRun
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - servicecatalog:ListProvisioningArtifacts
+                  - servicecatalog:CreateProvisioningArtifact
+                  - servicecatalog:DescribeProvisioningArtifact
+                  - servicecatalog:DeleteProvisioningArtifact
+                  - servicecatalog:UpdateProduct
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:DescribeImages
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - states:DescribeExecution
+                  - states:DescribeStateMachine
+                  - states:StartExecution
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - appconfig:StartDeployment
+                  - appconfig:StopDeployment
+                  - appconfig:GetDeployment
+                Resource: '*'
+  MyCodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - MyCodePipelineServiceRole
+      - MyCodeBuild
+    Properties:
+      Name: !Ref ServiceName
+      RoleArn: !GetAtt MyCodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !FindInMap
+          - RegionMap
+          - !Ref AWS::Region
+          - CodePipelineArtifactStoreS3Bucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: '1'
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: SourceArtifact
+              RunOrder: 1
+              Configuration:
+                Owner: github-rep
+                Repo: !Ref RepositoryName
+                Branch: !Ref BranchName
+                PollForSourceChanges: false
+                OAuthToken: github-auth-token
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              RunOrder: 2
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              Configuration:
+                ProjectName: !Ref ServiceName
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: 1
+              RunOrder: 3
+              Configuration:
+                ClusterName: !FindInMap
+                  - RegionMap
+                  - !Ref AWS::Region
+                  - ECSClusterName
+                ServiceName: !Ref ServiceName
+              InputArtifacts:
+                - Name: BuildArtifact
