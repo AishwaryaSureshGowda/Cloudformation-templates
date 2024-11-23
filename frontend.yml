@@ -234,7 +234,7 @@ Resources:
       Name: !Ref ServiceName
       Source:
         Type: GITHUB
-        Location: !Join ['', [https://github.com/gomigo-labs/, !Ref RepositoryName, .git]]
+        Location: !Join ['', [https://github.com/github-labs/, !Ref RepositoryName, .git]]
         GitCloneDepth: 1
         BuildSpec: !Ref BuildSpecFileName
       Environment:
@@ -410,7 +410,7 @@ Resources:
                 - Name: SourceArtifact
               RunOrder: 1
               Configuration:
-                Owner: gomigo-labs
+                Owner: github-labs
                 Repo: !Ref RepositoryName
                 Branch: !Ref BranchName
                 PollForSourceChanges: False
