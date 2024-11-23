@@ -1,0 +1,132 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  VisibilityTimeout:
+    Type: Number
+    Default: 30
+    Description: The length of time during which Amazon SQS prevents other consumers
+      from receiving and processing the message.
+  RetentionPeriod:
+    Type: Number
+    Default: 86400
+    Description: The number of seconds that Amazon SQS retains a message.
+  ReceiveMessageWaitTime:
+    Type: Number
+    Default: 0
+    Description: The length of time in seconds that the ReceiveMessage action waits
+      for a message to arrive.
+  QueueName:
+    Type: String
+    Description: Name of the queue
+  DeliveryDelay:
+    Type: Number
+    Description: The delay in seconds that the delivery of all messages in the queue
+      will be delayed.
+  Type:
+    Type: String
+    AllowedValues:
+    - standard
+    - fifo
+    Description: The type of Amazon SQS queue to create.
+    ConstraintDescription: Must specify a valid queue type (standard or fifo).
+  Region:
+    Type: String
+    Default: eu-north-1
+    Description: The AWS region in which to create the Amazon SQS queue.
+    ConstraintDescription: Must specify a valid AWS region.
+Conditions:
+  IsFifoQueue:
+    Fn::Equals:
+    - Ref: Type
+    - fifo
+  NotFifoQueue:
+    Fn::Not:
+    - Condition: IsFifoQueue
+Resources:
+  MyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::If:
+        - IsFifoQueue
+        - Fn::Join:
+          - ''
+          - - Ref: AWS::StackName
+            - ".fifo"
+        - Ref: AWS::StackName
+      FifoQueue:
+        Fn::If:
+        - IsFifoQueue
+        - true
+        - false
+      VisibilityTimeout:
+        Ref: VisibilityTimeout
+      MessageRetentionPeriod:
+        Ref: RetentionPeriod
+      ReceiveMessageWaitTimeSeconds:
+        Ref: ReceiveMessageWaitTime
+      DelaySeconds:
+        Ref: DeliveryDelay
+    Condition: IsFifoQueue
+  MyQueueStandard:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Ref: QueueName
+      VisibilityTimeout:
+        Ref: VisibilityTimeout
+      MessageRetentionPeriod:
+        Ref: RetentionPeriod
+      ReceiveMessageWaitTimeSeconds:
+        Ref: ReceiveMessageWaitTime
+    Condition: NotFifoQueue
+  MyQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2008-10-17'
+        Id: __default_policy_ID
+        Statement:
+        - Sid: __owner_statement
+          Effect: Allow
+          Principal:
+            AWS: arn:aws:iam::378176467373:root
+          Action: SQS:*
+          Resource:
+            Fn::If:
+            - IsFifoQueue
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:sqs:'
+                - Ref: AWS::Region
+                - ":"
+                - Ref: AWS::AccountId
+                - ":"
+                - Fn::Join:
+                  - ''
+                  - - Ref: QueueName
+                    - ".fifo"
+            - Fn::Join:
+              - ''
+              - - 'arn:aws:sqs:'
+                - Ref: AWS::Region
+                - ":"
+                - Ref: AWS::AccountId
+                - ":"
+                - Ref: QueueName
+      Queues:
+        Fn::If:
+        - IsFifoQueue
+        - - Ref: MyQueue
+        - - Ref: MyQueueStandard
+Outputs:
+  QueueUrl:
+    Value:
+      Fn::If:
+      - IsFifoQueue
+      - Fn::GetAtt:
+        - MyQueue
+        - Arn
+      - Fn::GetAtt:
+        - MyQueueStandard
+        - Arn
