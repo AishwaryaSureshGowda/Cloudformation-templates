@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  Amazon Cognito User Pool with Passwordless E-Mail Auth configured
+Globals:
+  Function:
+    Timeout: 3
+Parameters:
+  UserPoolName:
+    Type: String
+    Description: The name you want the User Pool to be created with
+  SESFromAddress:
+    Type: String
+    Description: The e-mail address to send the secret login code from
+Resources:
+  DefineAuthChallenge:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: test
+        Key: define-auth-challenge.zip
+      Handler: index.handler
+      Runtime: nodejs12.x
+  CreateAuthChallenge:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: test
+        Key: create-auth-challenge.zip
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          SES_FROM_ADDRESS:
+            Ref: SESFromAddress
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - ses:SendEmail
+          Resource: '*'
+  VerifyAuthChallengeResponse:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: test
+        Key: verify-auth-challenge.zip
+      Handler: index.handler
+      Runtime: nodejs12.x
+  PreSignUp:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: test
+        Key: pre-signup.zip
+      Handler: index.handler
+      Runtime: nodejs12.x
+  PostAuthentication:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: test
+        Key: post-auth.zip
+      Handler: post-authentication.handler
+      Runtime: nodejs12.x
+      Role:
+        Fn::GetAtt:
+        - PostAuthenticationRole
+        - Arn
+  PostAuthenticationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  SetUserAttributesPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: allow-set-user-attributes
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - cognito-idp:AdminUpdateUserAttributes
+          Resource:
+          - Fn::GetAtt:
+            - UserPool
+            - Arn
+      Roles:
+      - Ref: PostAuthenticationRole
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName:
+        Ref: UserPoolName
+      Schema:
+      - Name: name
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: email
+        AttributeDataType: String
+        Mutable: true
+        Required: true
+        # Custom attributes are
+      - Name: companyName
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: employeeName
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: tenantId
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: phone
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: role
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: status
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      - Name: employeeEmail
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      UsernameAttributes:
+      - email
+      - phone_number 
+      UsernameConfiguration:
+        CaseSensitive: true
+      MfaConfiguration: 'OFF'
+      LambdaConfig:
+        CreateAuthChallenge:
+          Fn::GetAtt:
+          - CreateAuthChallenge
+          - Arn
+        DefineAuthChallenge:
+          Fn::GetAtt:
+          - DefineAuthChallenge
+          - Arn
+        PreSignUp:
+          Fn::GetAtt:
+          - PreSignUp
+          - Arn
+        VerifyAuthChallengeResponse:
+          Fn::GetAtt:
+          - VerifyAuthChallengeResponse
+          - Arn
+        PostAuthentication:
+          Fn::GetAtt:
+          - PostAuthentication
+          - Arn
+  DefineAuthChallengeInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DefineAuthChallenge
+        - Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - UserPool
+        - Arn
+  CreateAuthChallengeInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - CreateAuthChallenge
+        - Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - UserPool
+        - Arn
+  VerifyAuthChallengeResponseInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - VerifyAuthChallengeResponse
+        - Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - UserPool
+        - Arn
+  PreSignUpInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - PreSignUp
+        - Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - UserPool
+        - Arn
+  PostAuthenticationInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - PostAuthentication
+        - Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - UserPool
+        - Arn
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: email-auth-client
+      GenerateSecret: false
+      UserPoolId:
+        Ref: UserPool
+      ExplicitAuthFlows:
+      - CUSTOM_AUTH_FLOW_ONLY
+Outputs:
+  UserPoolId:
+    Description: ID of the User Pool
+    Value:
+      Ref: UserPool
+  UserPoolClientId:
+    Description: ID of the User Pool Client
+    Value:
+      Ref: UserPoolClient
