@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Sample Aurora PostgreSQL Cluster Template
+Parameters:
+  DBClusterName:
+    Type: String
+    Description: Enter the name of the cluster 
+  SecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: The EC2 Security Group IDs for the DB subnet group.
+  DBSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: The EC2 Subnet IDs for the DB subnet group.
+Resources:
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Private subnet in scrut dev VPC."
+      SubnetIds: !Ref DBSubnetIds
+  MyDBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineMode: provisioned
+      EngineVersion: "16.1" # Modify engine version as per your requirement
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VpcSecurityGroupIds: !Ref SecurityGroupIds
+      MasterUsername: !Sub "{{resolve:ssm:/MasterUsername:1}}"
+      MasterUserPassword: !Sub "{{resolve:ssm:/MasterUserPassword:1}}"
+      BackupRetentionPeriod: 1 # Modify as needed
+      EnableIAMDatabaseAuthentication: false
+      DeletionProtection: false
+      StorageEncrypted: true
+      Port: 5432
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 8
+      DBClusterIdentifier: !Ref DBClusterName
+  MyDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgresql
+      DBInstanceClass: db.serverless
+      DBClusterIdentifier: !Ref MyDBCluster
